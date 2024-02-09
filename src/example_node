@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+import rospy
+from geometry_msgs.msg import Twist
+from sensor_msgs.msg import Joy
+
+class ExampleNode():
+    def __init__(self):
+        rospy.init_node("example_node")
+        self._dt = 0.1
+        self.vel_topic = 'cmd_vel'
+        self.joystick_topic = '/bluetooth_teleop/joy'
+
+        self.establish_ros_connections()
+        self._rate = rospy.Rate(1/self._dt)
+
+        self.keep_output_enabled_for = 0
+
+    def establish_ros_connections(self):
+
+        self._cmd_pub = rospy.Publisher(self.vel_topic, Twist, queue_size=1)
+
+        self.joystick_sub = rospy.Subscriber(self.joystick_topic, Joy, self.joystick_cb, queue_size=1)
+
+    def joystick_cb(self, msg):
+        # This is used as a safety command for the real robot
+        if msg.axes[2] <= -0.9: # press L2 on ps4 controller
+            self.enable_output = True
+            self.keep_output_enabled_for = 2 # budget of two to prevent race condition
+        else:
+            self.keep_output_enabled_for = 0
+
+    def actuate_if_deadman_switch(self):
+        if self.keep_output_enabled_for > 0:
+            self.enable_output = True
+            self.keep_output_enabled_for -= 1
+            # Publish output command
+            self._cmd_pub.publish(self.vel_cmd_msg)
+        else:
+            self.enable_output = False
+
+    def act(self):
+        self.vel_cmd_msg = Twist()
+        self.vel_cmd_msg.linear.x = 0.0
+        self.vel_cmd_msg.linear.y = 0.1
+
+        self.actuate_if_deadman_switch()
+
+    def run(self):
+        while not rospy.is_shutdown():
+            self.act()
+            self._rate.sleep()
+
+if __name__ == "__main__":
+    try:
+        example_node = ExampleNode()
+        example_node.run()
+    except rospy.ROSInterruptException:
+        pass
